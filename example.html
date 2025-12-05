@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Demo WebRuntime</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+      pre { background: #f5f5f5; padding: 1rem; border-radius: 8px; }
+      button { margin: 0.25rem; padding: 0.5rem 1rem; }
+      .pill { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 999px; background: #eef; margin: 0.25rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Runtime web – ejemplo mínimo</h1>
+    <p>
+      Este documento HTML funciona en cualquier hosting estático (incluido GitHub Pages). Carga <code>runtime.js</code>,
+      inicializa reglas de prueba y deja ejecutar acciones / habilidades sin backend.
+    </p>
+
+    <section>
+      <h2>Acciones disponibles</h2>
+      <div id="actions"></div>
+    </section>
+
+    <section>
+      <h2>Eventos recientes</h2>
+      <div id="events"></div>
+    </section>
+
+    <section>
+      <h2>Estado actual</h2>
+      <pre id="state"></pre>
+    </section>
+
+    <script type="module">
+      import { WebRuntime } from './runtime.js';
+
+      const rules = {
+        metadata: {
+          deck: { ranks: ['A', 'K', 'Q'], suits: ['H', 'S'] },
+          setup: { initialHandSize: 2, shuffle: false },
+          cardValues: { A: 1, K: 10, Q: 5 },
+          cardAbilities: { QH: 'reveal_self' },
+        },
+        actions: {
+          draw: { id: 'draw', allowedPhases: ['main_turn'], effects: [{ op: 'moveCard', from: 'deck', to: 'currentPlayer.hand' }] },
+          burnTop: { id: 'burnTop', allowedPhases: ['main_turn'], effects: [{ op: 'moveCard', from: 'currentPlayer.hand', to: 'discard' }] },
+          burnIndex: {
+            id: 'burnIndex',
+            allowedPhases: ['main_turn'],
+            effects: [{ op: 'moveCardByIndex', from: 'currentPlayer.hand', to: 'discard', param: 'handIndex' }],
+          },
+        },
+        abilities: {
+          reveal_self: {
+            id: 'reveal_self',
+            allowedPhases: ['main_turn'],
+            effects: [{ op: 'revealCard', target: 'currentPlayer', handIndexParam: 'handIndex' }],
+          },
+        },
+      };
+
+      const runtime = new WebRuntime({ rules, seed: 'demo', logger: (msg) => console.log(`[runtime] ${msg}`) });
+      const state = runtime.initState({ players: [{ id: 1, name: 'Ana' }, { id: 2, name: 'Luis' }], shuffle: false });
+
+      const actionsDiv = document.getElementById('actions');
+      const eventsDiv = document.getElementById('events');
+      const statePre = document.getElementById('state');
+
+      function render() {
+        actionsDiv.innerHTML = '';
+        const currentPlayer = state.players[state.turn.currentPlayerIndex];
+        const available = runtime.getAvailableActions({ state, playerId: currentPlayer.id });
+
+        available.forEach((actionId) => {
+          const btn = document.createElement('button');
+          btn.textContent = actionId;
+          btn.onclick = () => executeAction(actionId);
+          actionsDiv.appendChild(btn);
+        });
+
+        // Botones de habilidades por carta
+        currentPlayer.hand.forEach((card, idx) => {
+          const abilityId = rules.metadata.cardAbilities?.[card];
+          if (!abilityId) return;
+          const pill = document.createElement('button');
+          pill.textContent = `${abilityId} (${card})`;
+          pill.onclick = () => executeAbility(abilityId, { handIndex: idx, cardCode: card });
+          actionsDiv.appendChild(pill);
+        });
+
+        statePre.textContent = JSON.stringify(state, null, 2);
+      }
+
+      function logEvents(newEvents = []) {
+        newEvents.slice(-10).forEach((ev) => {
+          const span = document.createElement('span');
+          span.className = 'pill';
+          span.textContent = `${ev.type} -> ${JSON.stringify(ev)}`;
+          eventsDiv.prepend(span);
+        });
+      }
+
+      function executeAction(actionId) {
+        const params = {};
+        if (actionId === 'burnIndex') {
+          const input = prompt('Índice de carta a descartar (0 es la primera carta):', '0');
+          const idx = Number(input);
+          if (Number.isNaN(idx)) return;
+          params.handIndex = idx;
+        }
+        const { events } = runtime.executeAction({ state, playerId: state.players[state.turn.currentPlayerIndex].id, actionId, params });
+        logEvents(events);
+        render();
+      }
+
+      function executeAbility(abilityId, params) {
+        const { events } = runtime.executeAbility({ state, playerId: state.players[state.turn.currentPlayerIndex].id, abilityId, params });
+        logEvents(events);
+        render();
+      }
+
+      render();
+    </script>
+  </body>
+</html>
